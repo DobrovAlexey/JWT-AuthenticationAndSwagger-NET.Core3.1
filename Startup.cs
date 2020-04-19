@@ -26,6 +26,18 @@ namespace JWT_AuthenticationAndSwagger_NET.Core3._1
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers();
+
+            #region Add OpenAPI/Swagger document
+
+            // registers a OpenAPI v3.0 document with the name "v1" (default)
+            services.AddOpenApiDocument(configure =>
+            {
+                configure.Version = "v1";
+                configure.Title = "WebAPI (OpenApi)";
+                configure.Description = "ASP.NET Core Web API";
+            });
+
+            #endregion
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -37,6 +49,21 @@ namespace JWT_AuthenticationAndSwagger_NET.Core3._1
             }
 
             app.UseHttpsRedirection();
+
+            #region Add OpenAPI/Swagger document
+
+            // Serves the registered OpenAPI/Swagger documents
+            app.UseOpenApi();
+            // Serves the Swagger UI 3 web ui to view the OpenAPI/Swagger documents
+            app.UseSwaggerUi3(settings =>
+            {
+                settings.Path = "/api";
+                settings.DocumentPath = "/swagger/v1/swagger.json";
+            });
+            // serve ReDoc UI
+            app.UseReDoc(options => options.Path = "/redoc");
+
+            #endregion
 
             app.UseRouting();
 
