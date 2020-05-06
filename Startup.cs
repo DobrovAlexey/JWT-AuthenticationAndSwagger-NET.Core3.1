@@ -1,15 +1,20 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
+using System.Text;
+using JWT_AuthenticationAndSwagger_NET.Core3._1.JWT.Interfaces;
+using JWT_AuthenticationAndSwagger_NET.Core3._1.JWT.Options;
+using JWT_AuthenticationAndSwagger_NET.Core3._1.JWT.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
+using NJsonSchema.Generation;
+using NSwag;
+using NSwag.Generation.Processors.Security;
 
 namespace JWT_AuthenticationAndSwagger_NET.Core3._1
 {
@@ -27,14 +32,70 @@ namespace JWT_AuthenticationAndSwagger_NET.Core3._1
         {
             services.AddControllers();
 
+            #region Options
+
+            // Register the ConfigurationBuilder instance of JwtOption
+            var jwtOption = Configuration.GetSection(nameof(JwtOption));
+            services.Configure<JwtOption>(jwtOption);
+
+            var signingKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(jwtOption[nameof(JwtOption.SecretKey)]));
+
+            // jwt wire up
+            // Get options from app settings
+            var jwtAppSettingOptions = Configuration.GetSection(nameof(JwtIssuerOptions));
+
+            // Configure JwtIssuerOptions
+            services.Configure<JwtIssuerOptions>(jwtAppSettingOptions);
+            services.Configure<JwtIssuerOptions>(options =>
+            {
+                options.ValidFor = TimeSpan.FromMinutes(int.Parse(jwtAppSettingOptions[nameof(JwtIssuerOptions.ValidFor)]));
+                options.SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+            });
+
+            #endregion
+
+
+            #region JWT
+
+            services.AddSingleton<IJwtFactory, JwtFactory>();
+            services.AddSingleton<IJwtTokenHandler, JwtTokenHandler>();
+            services.AddSingleton<IJwtTokenValidator, JwtTokenValidator>();
+            services.AddSingleton<IRefreshTokenFactory, RefreshTokenFactory>();
+
+            // the AddJwtBearer middleware receives the JwtBearerOptions object from the IOptions during execution
+            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+
+            // The Class which holds the JwtBearerOptions will be returned whenever required
+            services.ConfigureOptions<ConfigureJwtBearerOptions>();
+            #endregion
+
+            services.AddAuthorization(options =>
+            {
+                options.DefaultPolicy = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
+                    .RequireAuthenticatedUser()
+                    .Build();
+            });
+
             #region Add OpenAPI/Swagger document
 
             // registers a OpenAPI v3.0 document with the name "v1" (default)
+            // https://github.com/RicoSuter/NSwag/wiki/AspNetCore-Middleware#enable-jwt-authentication
             services.AddOpenApiDocument(configure =>
             {
                 configure.Version = "v1";
-                configure.Title = "WebAPI (OpenApi)";
-                configure.Description = "ASP.NET Core Web API";
+                configure.Title = "Volunteers WebAPI (OpenApi)";
+                configure.Description = "ASP.NET Core Web API for Volunteers";
+                configure.DefaultReferenceTypeNullHandling = ReferenceTypeNullHandling.Null;
+
+                configure.AddSecurity("JWT", Enumerable.Empty<string>(), new OpenApiSecurityScheme
+                {
+                    Type = OpenApiSecuritySchemeType.ApiKey,
+                    Name = "Authorization",
+                    In = OpenApiSecurityApiKeyLocation.Header,
+                    Description = "Type into the textbox: Bearer {your JWT token}."
+                });
+
+                configure.OperationProcessors.Add(new AspNetCoreOperationSecurityScopeProcessor("JWT"));
             });
 
             #endregion
@@ -67,6 +128,7 @@ namespace JWT_AuthenticationAndSwagger_NET.Core3._1
 
             app.UseRouting();
 
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>
